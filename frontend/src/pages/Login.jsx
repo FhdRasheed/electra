@@ -160,6 +160,8 @@ function Login({ onLoginSuccess }) {
           </button>
         </form>
 
+        <button type="button" className="back-btn" onClick={() => navigate("/")}>Back to Landing Page</button>
+
       {/* Sign Up Link - Conditional based on userType */}
 {userType === "voter" ? (
   <p className="auth-link">

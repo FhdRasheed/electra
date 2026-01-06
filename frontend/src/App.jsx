@@ -45,7 +45,7 @@ function App() {
     localStorage.removeItem("voterId");
     setIsLoggedIn(false);
     setUserType(null);
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   if (loading) {

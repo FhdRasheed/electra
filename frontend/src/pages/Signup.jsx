@@ -341,6 +341,8 @@ function Signup() {
         <p className="auth-link">
           Already have an account? <a href="/login">Sign in here</a>
         </p>
+
+        <button type="button" className="back-btn" onClick={() => navigate("/")}>Back to Landing Page</button>
       </div>
     </div>
   );

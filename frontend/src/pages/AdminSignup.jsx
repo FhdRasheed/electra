@@ -261,6 +261,8 @@ function AdminSignup() {
             </a>
           </p>
         </div>
+
+        <button type="button" className="back-btn" onClick={() => navigate("/")}>Back to Landing Page</button>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ function AdminDashboard() {
     localStorage.removeItem("token");
     localStorage.removeItem("userType");
     localStorage.removeItem("email");
-    navigate("/login");
+    window.location.href = "/";
   };
 
   return (

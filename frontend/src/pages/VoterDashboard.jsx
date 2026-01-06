@@ -74,7 +74,7 @@ function VoterDashboard() {
     localStorage.removeItem("address");
     localStorage.removeItem("branchName");
     localStorage.removeItem("photoUrl");
-    navigate("/login");
+    window.location.href = "/";
   };
 
   return (

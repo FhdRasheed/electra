@@ -11,6 +11,20 @@ function ReportVoterError() {
   const [activeReportId, setActiveReportId] = useState(null);
   const [reportState, setReportState] = useState({});
 
+  const formatAddress = (address) => {
+    if (!address) return "—";
+    if (typeof address === "string") return address || "—";
+    if (typeof address === "object") {
+      const houseName = address.house_name;
+      const houseNumber = address.house_number;
+      const streetName = address.street_name;
+      const place = address.place;
+      const combined = [houseName, houseNumber, streetName, place].filter(Boolean).join(", ");
+      return combined || "—";
+    }
+    return String(address);
+  };
+
   const fetchVoters = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -109,7 +123,7 @@ function ReportVoterError() {
                         <td>{idx + 1}</td>
                         <td>{voter.voter_id}</td>
                         <td>{voter.full_name || voter.name}</td>
-                        <td>{voter.address}</td>
+                        <td>{formatAddress(voter.address)}</td>
                         <td>
                           <button className="vd-tile-btn" style={{ padding: '6px 12px', maxWidth: 120 }} onClick={() => openReport(voter._id || voter.voter_id, voter.voter_id)}>
                             Report

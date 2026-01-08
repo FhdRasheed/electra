@@ -30,7 +30,7 @@ function AdminDashboard() {
       {/* Header */}
       <header className="vd-header">
         <div className="vd-header-inner">
-          <h1 className="vd-website-name">ELECTRON</h1>
+          <h1 className="vd-website-name">ELECTRA</h1>
           <button className="btn-logout" onClick={handleLogout}>Logout</button>
         </div>
       </header>
@@ -52,7 +52,14 @@ function AdminDashboard() {
             <div className="vd-tile-icon">✓</div>
             <h3 className="vd-tile-title">Approve Candidates</h3>
             <p className="vd-tile-desc">Review and approve candidate applications. Verify their eligibility and approve or reject applications.</p>
-            <button className="vd-tile-btn" onClick={() => navigate('/candidate-application')}>Review Applications</button>
+            <button className="vd-tile-btn" onClick={() => navigate('/admin-candidate-applications')}>Review Applications</button>
+          </div>
+
+          <div className="vd-tile">
+            <div className="vd-tile-icon">🗓️</div>
+            <h3 className="vd-tile-title">Nomination Portal</h3>
+            <p className="vd-tile-desc">Open/close candidate applications and set nomination deadline. Sends voter notifications automatically.</p>
+            <button className="vd-tile-btn" onClick={() => navigate('/admin-nomination-portal')}>Manage Portal</button>
           </div>
 
           <div className="vd-tile">
@@ -66,7 +73,7 @@ function AdminDashboard() {
             <div className="vd-tile-icon">👥</div>
             <h3 className="vd-tile-title">View Voters</h3>
             <p className="vd-tile-desc">See the complete list of voters and edit their details when required.</p>
-            <button className="vd-tile-btn" onClick={() => navigate("/voters-list")}>View Voters List</button>
+            <button className="vd-tile-btn" onClick={() => navigate("/admin-voters-list")}>View Voters List</button>
           </div>
 
           <div className="vd-tile">
@@ -74,6 +81,13 @@ function AdminDashboard() {
             <h3 className="vd-tile-title">Send Notification</h3>
             <p className="vd-tile-desc">Send announcements or alerts to voters. Notifications will appear on voter dashboards.</p>
             <button className="vd-tile-btn" onClick={() => navigate('/send-notification')}>Send Notification</button>
+          </div>
+
+          <div className="vd-tile">
+            <div className="vd-tile-icon">🗳️</div>
+            <h3 className="vd-tile-title">Voting</h3>
+            <p className="vd-tile-desc">Manage voting operations and monitor election progress.</p>
+            <button className="vd-tile-btn" onClick={() => navigate('/admin-voting')}>Open Voting</button>
           </div>
         </section>
       </main>

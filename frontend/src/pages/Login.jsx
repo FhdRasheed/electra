@@ -83,7 +83,7 @@ function Login({ onLoginSuccess }) {
 
   return (
     <div className="auth-container">
-      <div className="app-title">ELECTRON</div>
+      <div className="app-title">ELECTRA</div>
       
       <div className="auth-card">
         {/* User Type Switch */}

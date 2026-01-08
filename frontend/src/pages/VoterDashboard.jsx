@@ -14,7 +14,26 @@ function VoterDashboard() {
   const [address, setAddress] = useState("");
   const [branchName, setBranchName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [profilePhotoFailed, setProfilePhotoFailed] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem("dismissedNotificationIds");
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const backendOrigin = String(api?.defaults?.baseURL || "").replace(/\/api\/?$/, "");
+  const getPhotoSrc = (url) => {
+    if (!url) return "";
+    if (/^https?:\/\//i.test(url)) return url;
+    const normalized = url.startsWith("/") ? url.slice(1) : url;
+    if (!backendOrigin) return `/${normalized}`;
+    return `${backendOrigin}/${normalized}`;
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -29,6 +48,13 @@ function VoterDashboard() {
       // If endpoint doesn't exist yet, use empty array
       setNotifications([]);
     }
+  };
+
+  const dismissNotification = (id) => {
+    const next = new Set(dismissedNotificationIds);
+    next.add(String(id));
+    setDismissedNotificationIds(next);
+    localStorage.setItem("dismissedNotificationIds", JSON.stringify(Array.from(next)));
   };
 
   useEffect(() => {
@@ -88,33 +114,33 @@ function VoterDashboard() {
       </header>
 
       <main className="vd-main">
-        {/* Notifications Section */}
-        {notifications.length > 0 && (
-          <section className="vd-notifications">
-            <h2 className="vd-section-title">Notifications</h2>
-            <div className="vd-notifications-list">
-              {notifications.map((notif, index) => (
-                <div key={index} className="vd-notification-item">
-                  <span className="notif-icon">📢</span>
-                  <span className="notif-text">{notif.message}</span>
-                  <span className="notif-date">{new Date(notif.created_at).toLocaleDateString()}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {(() => {
+          const latest = (notifications || []).find((n) => !dismissedNotificationIds.has(String(n._id)));
+          if (!latest) return null;
+
+          return (
+            <section className="notif-banner">
+              <div className="notif-banner-left">
+                <div className="notif-banner-title">{latest.title || "Notification"}</div>
+                <div className="notif-banner-message">{latest.message}</div>
+                {latest.created_at && (
+                  <div className="notif-banner-date">{new Date(latest.created_at).toLocaleString()}</div>
+                )}
+              </div>
+
+              <div className="notif-banner-actions">
+                <button className="vd-tile-btn" type="button" style={{ maxWidth: 160 }} onClick={() => navigate("/notifications")}>View all</button>
+                <button className="notif-dismiss" type="button" onClick={() => dismissNotification(latest._id)}>×</button>
+              </div>
+            </section>
+          );
+        })()}
 
         {/* User Profile Tile */}
         <section className="vd-profile-tile">
           <h2 className="vd-section-title">My Profile</h2>
           <div className="vd-profile-card">
-            {photoUrl ? (
-              <div className="profile-avatar">
-                <img src={photoUrl} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-              </div>
-            ) : (
-              <div className="profile-avatar">👤</div>
-            )}
+            <div className="profile-avatar">👤</div>
             <div className="profile-details">
               <div className="profile-row">
                 <span className="profile-label">Voter ID:</span>
@@ -156,6 +182,15 @@ function VoterDashboard() {
             <p className="vd-tile-desc">See the complete list of all eligible voters for the election.</p>
             <button className="vd-tile-btn" onClick={() => navigate("/voters-list")}>
               View List
+            </button>
+          </div>
+
+          <div className="vd-tile">
+            <div className="vd-tile-icon">🔔</div>
+            <h3 className="vd-tile-title">Notifications</h3>
+            <p className="vd-tile-desc">View all announcements sent by the admin and clear them once read.</p>
+            <button className="vd-tile-btn" onClick={() => navigate("/notifications")}>
+              View Notifications
             </button>
           </div>
 

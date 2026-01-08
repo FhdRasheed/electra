@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Component } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import Login from "./pages/Login";
@@ -11,9 +11,42 @@ import SendNotification from "./pages/SendNotification";
 import AddVoter from "./pages/AddVoter";
 import ReportVoterError from "./pages/ReportVoterError";
 import ViewVotersList from "./pages/ViewVotersList";
+import AdminVotersList from "./pages/AdminVotersList";
 import CandidateApplication from "./pages/CandidateApplication";
 import ElectionResults from "./pages/ElectionResults";
+import AdminVoting from "./pages/AdminVoting";
+import Notifications from "./pages/Notifications";
+import AdminCandidateApplications from "./pages/AdminCandidateApplications";
+import AdminNominationPortal from "./pages/AdminNominationPortal";
 import "./App.css";
+
+class PageErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Page crashed:", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Something went wrong on this page.</div>
+          <div style={{ marginTop: 8, color: "#b00020" }}>{String(this.state.error?.message || this.state.error)}</div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -108,16 +141,32 @@ function App() {
           } 
         />
 
-        {/* Protected View Voters List Page (voter or admin) */}
+        {/* Protected View Voters List Page (voter) */}
         <Route 
           path="/voters-list" 
           element={
-            isLoggedIn && (userType === "voter" || userType === "admin") ? (
-              <ViewVotersList />
+            isLoggedIn && userType === "voter" ? (
+              <PageErrorBoundary>
+                <ViewVotersList />
+              </PageErrorBoundary>
             ) : (
               <Navigate to="/login" />
             )
           } 
+        />
+
+        {/* Protected View Voters List Page (admin) */}
+        <Route
+          path="/admin-voters-list"
+          element={
+            isLoggedIn && userType === "admin" ? (
+              <PageErrorBoundary>
+                <AdminVotersList />
+              </PageErrorBoundary>
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
         />
 
         {/* Protected Candidate Application Page */}
@@ -132,6 +181,28 @@ function App() {
           } 
         />
 
+        <Route
+          path="/admin-candidate-applications"
+          element={
+            isLoggedIn && userType === "admin" ? (
+              <AdminCandidateApplications />
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+
+        <Route
+          path="/admin-nomination-portal"
+          element={
+            isLoggedIn && userType === "admin" ? (
+              <AdminNominationPortal />
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+
         {/* Protected Election Results Page */}
         <Route 
           path="/election-results" 
@@ -142,6 +213,28 @@ function App() {
               <Navigate to="/login" />
             )
           } 
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            isLoggedIn && userType === "voter" ? (
+              <Notifications />
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+
+        <Route
+          path="/admin-voting"
+          element={
+            isLoggedIn && userType === "admin" ? (
+              <AdminVoting />
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
         />
 
         {/* Redirect from /dashboard to appropriate dashboard */}
@@ -181,6 +274,12 @@ function App() {
             )
           }
         />
+
+        <Route path="/voters%20list" element={<Navigate to="/voters-list" replace />} />
+        <Route path="/admin%20voters%20list" element={<Navigate to="/admin-voters-list" replace />} />
+        <Route path="/adminvoterslist" element={<Navigate to="/admin-voters-list" replace />} />
+
+        <Route path="*" element={<Navigate to={isLoggedIn ? "/dashboard" : "/"} replace />} />
       </Routes>
     </Router>
   );

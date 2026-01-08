@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
 from bson import ObjectId
@@ -10,6 +10,7 @@ import jwt
 import datetime
 import base64
 import json
+import uuid
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +24,28 @@ JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", 60))
 app = Flask(__name__)
 CORS(app)
 
+UPLOAD_PHOTOS_DIR = os.path.join(os.path.dirname(__file__), "uploads", "photos")
+UPLOAD_CANDIDATE_DOCS_DIR = os.path.join(os.path.dirname(__file__), "uploads", "candidate_docs")
+UPLOAD_CANDIDATE_PHOTOS_DIR = os.path.join(os.path.dirname(__file__), "uploads", "candidate_photos")
+
+os.makedirs(UPLOAD_PHOTOS_DIR, exist_ok=True)
+os.makedirs(UPLOAD_CANDIDATE_DOCS_DIR, exist_ok=True)
+os.makedirs(UPLOAD_CANDIDATE_PHOTOS_DIR, exist_ok=True)
+
+@app.route("/uploads/photos/<path:filename>")
+def uploaded_photo(filename):
+    return send_from_directory(UPLOAD_PHOTOS_DIR, filename)
+
+
+@app.route("/uploads/candidate_docs/<path:filename>")
+def uploaded_candidate_doc(filename):
+    return send_from_directory(UPLOAD_CANDIDATE_DOCS_DIR, filename)
+
+
+@app.route("/uploads/candidate_photos/<path:filename>")
+def uploaded_candidate_photo(filename):
+    return send_from_directory(UPLOAD_CANDIDATE_PHOTOS_DIR, filename)
+
 # MongoDB client
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
@@ -30,6 +53,439 @@ users = db["users"]  # Collection
 notifications = db["notifications"]  # Collection for admin notifications
 otp_storage = db["otp_storage"]  # Collection for OTP verification
 reports = db["reports"]  # Collection for voter error reports
+candidate_applications = db["candidate_applications"]
+election_config = db["election_config"]
+
+try:
+    candidate_applications.create_index([("voter_id", 1)], unique=True)
+except Exception:
+    pass
+
+try:
+    candidate_applications.create_index([("user_id", 1)], unique=True)
+except Exception:
+    pass
+
+try:
+    election_config.create_index([("key", 1)], unique=True)
+except Exception:
+    pass
+
+
+def _allowed_ext(filename, allowed_exts):
+    ext = os.path.splitext(filename or "")[1].lower().lstrip(".")
+    return bool(ext) and ext in allowed_exts
+
+
+def _require_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ["true", "1", "yes", "on"]
+    return False
+
+
+def _calculate_age_from_iso_date(date_str):
+    if not date_str:
+        return None
+    try:
+        from datetime import datetime as dt
+        dob_date = dt.strptime(date_str, "%Y-%m-%d")
+        today = dt.now()
+        return (today - dob_date).days // 365
+    except Exception:
+        return None
+
+
+def _get_election_cfg():
+    return election_config.find_one({"key": "default"})
+
+
+def _is_nomination_phase(cfg):
+    if not cfg:
+        return False
+    phase = (cfg.get("phase") or "").strip().lower()
+    return phase in ["nomination", "nomination_phase", "nominations", "nomination open", "nomination_open"]
+
+
+def _format_deadline_text(nomination_last_date):
+    if nomination_last_date:
+        return f"Deadline: {nomination_last_date}"
+    return "Deadline: Not specified"
+
+
+@app.route("/api/election-config", methods=["GET"])
+def get_election_config():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    cfg = _get_election_cfg() or {}
+    out = {k: cfg.get(k) for k in ["phase", "nomination_last_date", "notes"]}
+    return jsonify({"success": True, "config": out}), 200
+
+
+@app.route("/api/election-config", methods=["PUT"])
+def set_election_config():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "admin":
+        return jsonify({"success": False, "message": "Only admins can update election config"}), 403
+
+    prev_cfg = _get_election_cfg()
+    prev_in_nomination = _is_nomination_phase(prev_cfg)
+
+    data = request.json or {}
+    phase = data.get("phase")
+    nomination_last_date = data.get("nomination_last_date")
+    notes = data.get("notes")
+
+    if not phase:
+        return jsonify({"success": False, "message": "phase is required"}), 400
+
+    update = {
+        "key": "default",
+        "phase": phase,
+        "nomination_last_date": nomination_last_date,
+        "notes": notes,
+        "updated_at": datetime.datetime.utcnow(),
+        "updated_by": str(user.get("_id"))
+    }
+
+    try:
+        election_config.update_one({"key": "default"}, {"$set": update}, upsert=True)
+
+        # When nominations are opened, notify all voters with deadline.
+        new_in_nomination = _is_nomination_phase({"phase": phase})
+        if new_in_nomination and not prev_in_nomination:
+            deadline_text = _format_deadline_text(nomination_last_date)
+            notif = {
+                "title": "Nominations Open",
+                "message": f"Candidate applications are now open. {deadline_text}",
+                "created_by": str(user.get("_id")),
+                "created_at": datetime.datetime.utcnow()
+            }
+            try:
+                notifications.insert_one(notif)
+            except Exception:
+                pass
+
+        return jsonify({"success": True, "message": "Election config updated"}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to update election config: {str(e)}"}), 500
+
+
+@app.route("/api/election-config/nomination-deadline-reminder", methods=["POST"])
+def nomination_deadline_reminder():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "admin":
+        return jsonify({"success": False, "message": "Only admins can send reminders"}), 403
+
+    cfg = _get_election_cfg() or {}
+    if not _is_nomination_phase(cfg):
+        return jsonify({"success": False, "message": "Nominations are not open"}), 400
+
+    deadline_text = _format_deadline_text(cfg.get("nomination_last_date"))
+    notif = {
+        "title": "Nomination Deadline Reminder",
+        "message": f"Nomination deadline is approaching. {deadline_text}",
+        "created_by": str(user.get("_id")),
+        "created_at": datetime.datetime.utcnow()
+    }
+
+    try:
+        result = notifications.insert_one(notif)
+        return jsonify({"success": True, "message": "Reminder sent", "notification_id": str(result.inserted_id)}), 201
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to send reminder: {str(e)}"}), 500
+
+
+@app.route("/api/candidate-applications/me", methods=["GET"])
+def get_my_candidate_application():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "voter":
+        return jsonify({"success": False, "message": "Only voters can access this"}), 403
+
+    cfg = _get_election_cfg()
+    in_nomination = _is_nomination_phase(cfg)
+
+    age = _calculate_age_from_iso_date(user.get("date_of_birth"))
+    if age is None:
+        eligible = False
+        eligibility_reason = "Date of birth not found"
+    elif age < 18:
+        eligible = False
+        eligibility_reason = "You must be at least 18 years old"
+    else:
+        eligible = True
+        eligibility_reason = None
+
+    if not in_nomination:
+        eligible = False
+        eligibility_reason = "Nominations are not open"
+
+    existing = candidate_applications.find_one({"user_id": str(user.get("_id"))})
+    app_out = None
+    if existing:
+        app_out = {k: existing.get(k) for k in existing.keys() if k != "_id"}
+        app_out["_id"] = str(existing.get("_id"))
+        if isinstance(existing.get("applied_at"), datetime.datetime):
+            app_out["applied_at"] = existing.get("applied_at").isoformat()
+        if isinstance(existing.get("reviewed_at"), datetime.datetime):
+            app_out["reviewed_at"] = existing.get("reviewed_at").isoformat()
+
+    voter_out = {
+        "full_name": user.get("full_name"),
+        "voter_id": user.get("voter_id"),
+        "date_of_birth": user.get("date_of_birth"),
+        "branch_name": user.get("branch_name"),
+        "email": user.get("email"),
+        "phone_no": user.get("phone_no")
+    }
+
+    cfg_out = {k: (cfg.get(k) if cfg else None) for k in ["phase", "nomination_last_date", "notes"]}
+
+    return jsonify({
+        "success": True,
+        "eligible": eligible,
+        "eligibility_reason": eligibility_reason,
+        "config": cfg_out,
+        "voter": voter_out,
+        "application": app_out
+    }), 200
+
+
+@app.route("/api/candidate-applications", methods=["POST"])
+def submit_candidate_application():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "voter":
+        return jsonify({"success": False, "message": "Only voters can submit applications"}), 403
+
+    cfg = _get_election_cfg()
+    if not _is_nomination_phase(cfg):
+        return jsonify({"success": False, "message": "Nominations are not open"}), 400
+
+    age = _calculate_age_from_iso_date(user.get("date_of_birth"))
+    if age is None:
+        return jsonify({"success": False, "message": "Date of birth not found"}), 400
+    if age < 18:
+        return jsonify({"success": False, "message": "You must be at least 18 years old"}), 400
+
+    existing = candidate_applications.find_one({"user_id": str(user.get("_id"))})
+    if existing:
+        return jsonify({"success": False, "message": "You have already applied"}), 409
+
+    position = request.form.get("position")
+    statement = request.form.get("statement")
+    experience = request.form.get("experience")
+    symbol = request.form.get("symbol")
+    declaration = _require_bool(request.form.get("declaration"))
+
+    if not position or not statement:
+        return jsonify({"success": False, "message": "position and statement are required"}), 400
+    if not declaration:
+        return jsonify({"success": False, "message": "Declaration is required"}), 400
+
+    identity_proof = request.files.get("identity_proof")
+    membership_proof = request.files.get("membership_proof")
+    supporting_document = request.files.get("supporting_document")
+    candidate_photo = request.files.get("candidate_photo")
+
+    if not identity_proof or not membership_proof:
+        return jsonify({"success": False, "message": "identity_proof and membership_proof are required"}), 400
+
+    allowed_doc_exts = {"pdf", "jpg", "jpeg", "png"}
+    allowed_photo_exts = {"jpg", "jpeg", "png"}
+
+    for f, key in [(identity_proof, "identity_proof"), (membership_proof, "membership_proof"), (supporting_document, "supporting_document")]:
+        if not f:
+            continue
+        if not _allowed_ext(f.filename, allowed_doc_exts):
+            return jsonify({"success": False, "message": f"Invalid file type for {key}. Allowed: PDF/JPG/PNG"}), 400
+
+    if candidate_photo and not _allowed_ext(candidate_photo.filename, allowed_photo_exts):
+        return jsonify({"success": False, "message": "Invalid file type for candidate_photo. Allowed: JPG/PNG"}), 400
+
+    max_size_bytes = 5 * 1024 * 1024
+    for f, key in [(identity_proof, "identity_proof"), (membership_proof, "membership_proof"), (supporting_document, "supporting_document"), (candidate_photo, "candidate_photo")]:
+        if not f:
+            continue
+        try:
+            f.stream.seek(0, os.SEEK_END)
+            size = f.stream.tell()
+            f.stream.seek(0)
+            if size > max_size_bytes:
+                return jsonify({"success": False, "message": f"{key} must be <= 5MB"}), 400
+        except Exception:
+            pass
+
+    def save_file(file_obj, folder, prefix):
+        safe_name = secure_filename(file_obj.filename)
+        ext = os.path.splitext(safe_name)[1].lower()
+        filename = f"{prefix}_{uuid.uuid4().hex}{ext}"
+        path = os.path.join(folder, filename)
+        file_obj.save(path)
+        return filename
+
+    identity_filename = save_file(identity_proof, UPLOAD_CANDIDATE_DOCS_DIR, "identity")
+    membership_filename = save_file(membership_proof, UPLOAD_CANDIDATE_DOCS_DIR, "membership")
+    supporting_filename = None
+    if supporting_document:
+        supporting_filename = save_file(supporting_document, UPLOAD_CANDIDATE_DOCS_DIR, "support")
+
+    candidate_photo_filename = None
+    if candidate_photo:
+        candidate_photo_filename = save_file(candidate_photo, UPLOAD_CANDIDATE_PHOTOS_DIR, "candidate")
+
+    reference_number = f"CA-{user.get('voter_id')}-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+
+    doc = {
+        "reference_number": reference_number,
+        "user_id": str(user.get("_id")),
+        "voter_id": user.get("voter_id"),
+        "full_name": user.get("full_name"),
+        "branch_name": user.get("branch_name"),
+        "position": position,
+        "symbol": symbol,
+        "statement": statement,
+        "experience": experience,
+        "declaration": True,
+        "documents": {
+            "identity_proof": f"/uploads/candidate_docs/{identity_filename}",
+            "membership_proof": f"/uploads/candidate_docs/{membership_filename}",
+            "supporting_document": f"/uploads/candidate_docs/{supporting_filename}" if supporting_filename else None
+        },
+        "candidate_photo_url": f"/uploads/candidate_photos/{candidate_photo_filename}" if candidate_photo_filename else None,
+        "status": "Pending",
+        "applied_at": datetime.datetime.utcnow(),
+        "reviewed_at": None,
+        "reviewed_by": None,
+        "admin_remarks": None
+    }
+
+    try:
+        result = candidate_applications.insert_one(doc)
+        return jsonify({
+            "success": True,
+            "message": "Application submitted successfully",
+            "application_id": str(result.inserted_id),
+            "reference_number": reference_number,
+            "status": "Pending"
+        }), 201
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to submit application: {str(e)}"}), 500
+
+
+@app.route("/api/candidate-applications", methods=["GET"])
+def list_candidate_applications():
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "admin":
+        return jsonify({"success": False, "message": "Only admins can view applications"}), 403
+
+    status = request.args.get("status")
+    position = request.args.get("position")
+
+    query = {}
+    if status:
+        query["status"] = status
+    if position:
+        query["position"] = position
+
+    try:
+        apps = list(candidate_applications.find(query).sort("applied_at", -1))
+        out = []
+        for a in apps:
+            a_obj = {k: a.get(k) for k in a.keys() if k != "_id"}
+            a_obj["_id"] = str(a.get("_id"))
+            if isinstance(a.get("applied_at"), datetime.datetime):
+                a_obj["applied_at"] = a.get("applied_at").isoformat()
+            if isinstance(a.get("reviewed_at"), datetime.datetime):
+                a_obj["reviewed_at"] = a.get("reviewed_at").isoformat()
+            out.append(a_obj)
+        return jsonify({"success": True, "applications": out}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to fetch applications: {str(e)}"}), 500
+
+
+@app.route("/api/candidate-applications/<app_id>/review", methods=["PUT"])
+def review_candidate_application(app_id):
+    user, error_response, status_code = verify_token_and_get_user()
+    if error_response:
+        return error_response, status_code
+
+    if not user:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if user.get("user_type") != "admin":
+        return jsonify({"success": False, "message": "Only admins can review applications"}), 403
+
+    data = request.json or {}
+    status = data.get("status")
+    admin_remarks = data.get("admin_remarks")
+
+    if status not in ["Approved", "Rejected"]:
+        return jsonify({"success": False, "message": "status must be Approved or Rejected"}), 400
+
+    try:
+        obj_id = ObjectId(app_id)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid application id"}), 400
+
+    update = {
+        "status": status,
+        "admin_remarks": admin_remarks,
+        "reviewed_at": datetime.datetime.utcnow(),
+        "reviewed_by": str(user.get("_id"))
+    }
+
+    try:
+        result = candidate_applications.update_one({"_id": obj_id}, {"$set": update})
+        if result.matched_count == 0:
+            return jsonify({"success": False, "message": "Application not found"}), 404
+
+        updated = candidate_applications.find_one({"_id": obj_id})
+        updated_out = {k: updated.get(k) for k in updated.keys() if k != "_id"}
+        updated_out["_id"] = str(updated.get("_id"))
+        if isinstance(updated.get("applied_at"), datetime.datetime):
+            updated_out["applied_at"] = updated.get("applied_at").isoformat()
+        if isinstance(updated.get("reviewed_at"), datetime.datetime):
+            updated_out["reviewed_at"] = updated.get("reviewed_at").isoformat()
+
+        return jsonify({"success": True, "message": "Application updated", "application": updated_out}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to update application: {str(e)}"}), 500
 
 # Generate JWT token
 def generate_token(user_id):
@@ -400,12 +856,17 @@ def create_notification():
         return jsonify({"success": False, "message": "Only admins can create notifications"}), 403
     
     data = request.json
+    title = data.get("title")
     message = data.get("message")
     
     if not message:
         return jsonify({"success": False, "message": "Notification message is required"}), 400
+
+    if not title:
+        title = "Notification"
     
     notification_data = {
+        "title": title,
         "message": message,
         "created_by": str(user["_id"]),
         "created_at": datetime.datetime.utcnow()
@@ -505,7 +966,7 @@ def add_voter():
         except Exception:
             pass
 
-        upload_folder = os.path.join(os.getcwd(), "uploads", "photos")
+        upload_folder = UPLOAD_PHOTOS_DIR
         os.makedirs(upload_folder, exist_ok=True)
         
         filename = secure_filename(f"{voter_id}_{photo_file.filename}")

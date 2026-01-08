@@ -97,6 +97,62 @@ body, html, #root { height: 100%; }
   border-bottom: none;
 }
 
+.notif-banner {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(11, 41, 84, 0.08);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.notif-banner-left { flex: 1; min-width: 0; }
+
+.notif-banner-title {
+  font-weight: 800;
+  color: #0b2340;
+  font-size: 15px;
+}
+
+.notif-banner-message {
+  margin-top: 6px;
+  color: #0b2340;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.notif-banner-date {
+  margin-top: 6px;
+  color: #6b7a8f;
+  font-size: 12px;
+}
+
+.notif-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notif-dismiss {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(51,65,85,0.10);
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.notif-dismiss:hover { background: #f8fafc; }
+
 .notif-icon {
   font-size: 20px;
 }
@@ -448,7 +504,19 @@ body, html, #root { height: 100%; }
 .admin-edit-grid { display: flex; gap: 12px; flex-wrap: wrap; }
 .admin-edit-field { min-width: 220px; display:flex; flex-direction:column; }
 .admin-edit-field label { font-weight: 600; color: #334155; margin-bottom: 6px; }
-.admin-edit-field input { padding: 10px 12px; border-radius: 8px; border: 1px solid #e6eef7; }
+.admin-edit-field input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d7e2f0;
+  background: #f8fafc;
+  color: #0b2340;
+}
+
+.admin-edit-field input:focus {
+  outline: none;
+  border-color: #6a62cc;
+  box-shadow: 0 0 0 4px rgba(106, 98, 204, 0.18);
+}
 
 .admin-edit-actions { margin-top: 12px; }
 

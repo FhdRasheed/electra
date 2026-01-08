@@ -5,6 +5,7 @@ import "../styles/Voterdash.css";
 
 function SendNotification() {
   const navigate = useNavigate();
+  const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState("");
 
@@ -20,12 +21,13 @@ function SendNotification() {
       const token = localStorage.getItem("token");
       const res = await api.post(
         "/notifications",
-        { message },
+        { title, message },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (res.data.success) {
         setStatus("Notification sent");
+        setTitle("");
         setMessage("");
         setTimeout(() => navigate("/admin-dashboard"), 900);
       } else {
@@ -55,8 +57,24 @@ function SendNotification() {
           <div className="admin-edit-card" style={{ marginTop: 16 }}>
             <form onSubmit={handleSubmit}>
               <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>Title</label>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="E.g., Election Update"
+                  style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #e6eef7' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>Message</label>
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={6} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #e6eef7' }} />
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={6}
+                  placeholder="Write your announcement clearly and concisely"
+                  style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #e6eef7' }}
+                />
               </div>
 
               <div className="admin-edit-actions">

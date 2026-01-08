@@ -1,13 +1,41 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
-import "../styles/AuthPages.css";
+import "../styles/Voterdash.css";
 
 function ViewVotersList() {
   const navigate = useNavigate();
   const [voters, setVoters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [searchVoterId, setSearchVoterId] = useState("");
+
+  const formatAddress = (address) => {
+    if (!address) return "—";
+    if (typeof address === "string") return address || "—";
+    if (typeof address === "object") {
+      const houseName = address.house_name;
+      const houseNumber = address.house_number;
+      const streetName = address.street_name;
+      const place = address.place;
+      const combined = [houseName, houseNumber, streetName, place].filter(Boolean).join(", ");
+      return combined || "—";
+    }
+    return String(address);
+  };
+
+  const calculateAge = (dob) => {
+    if (!dob) return "—";
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) return "—";
+    const today = new Date();
+    let age = today.getFullYear() - d.getFullYear();
+    const m = today.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < d.getDate())) {
+      age -= 1;
+    }
+    return age >= 0 ? age : "—";
+  };
 
   const fetchVoters = async () => {
     try {
@@ -30,69 +58,87 @@ function ViewVotersList() {
     fetchVoters();
   }, []);
 
+  const filteredVoters = useMemo(() => {
+    const q = (searchVoterId || "").trim();
+    if (!q) return voters;
+    return voters.filter((v) => String(v.voter_id || "").includes(q));
+  }, [voters, searchVoterId]);
+
   return (
-    <div className="auth-container" style={{ maxWidth: "1000px" }}>
-      <div className="app-title">ELECTRA</div>
-      
-      <div className="auth-card">
-        <button 
-          className="btn-back" 
-          onClick={() => navigate("/voter-dashboard")}
-          style={{ marginBottom: "20px", padding: "10px 20px", cursor: "pointer", backgroundColor: "#f0f0f0", border: "1px solid #ddd", borderRadius: "4px" }}
-        >
-          ← Back
-        </button>
+    <div className="vd-wrapper">
+      <header className="vd-header">
+        <div className="vd-header-inner">
+          <h1 className="vd-website-name">ELECTRA</h1>
+          <button className="btn-logout" onClick={() => navigate("/voter-dashboard")}>Back</button>
+        </div>
+      </header>
 
-        <h1 className="welcome-title">Voters List</h1>
-        <p className="welcome-subtitle">Complete list of eligible voters</p>
+      <main className="vd-main">
+        <section>
+          <h2 className="vd-section-title">Voters List</h2>
+          <div className="vd-section-subtitle">Search voters by Voter ID</div>
 
-        {message && (
-          <div className="message error">
-            {message}
+          <div className="admin-edit-card" style={{ marginTop: 0 }}>
+            <div className="report-form">
+              <div className="report-field report-field--grow">
+                <label htmlFor="searchVoterId">Voter ID</label>
+                <input
+                  id="searchVoterId"
+                  className="report-input"
+                  type="text"
+                  placeholder="Enter Voter ID"
+                  value={searchVoterId}
+                  onChange={(e) => setSearchVoterId(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                />
+              </div>
+              <div className="report-actions">
+                <button className="btn-cancel" type="button" onClick={() => setSearchVoterId("")}>Clear</button>
+              </div>
+            </div>
           </div>
-        )}
 
-        {loading ? (
-          <div style={{ textAlign: "center", padding: "20px" }}>
-            <p>Loading voters list...</p>
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto", marginTop: "20px" }}>
-            <table style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              border: "1px solid #ddd"
-            }}>
-              <thead style={{ backgroundColor: "#f4f4f4" }}>
-                <tr>
-                  <th style={{ padding: "10px", textAlign: "left", borderBottom: "1px solid #ddd" }}>SI No</th>
-                  <th style={{ padding: "10px", textAlign: "left", borderBottom: "1px solid #ddd" }}>Voter ID</th>
-                  <th style={{ padding: "10px", textAlign: "left", borderBottom: "1px solid #ddd" }}>Voter Name</th>
-                  <th style={{ padding: "10px", textAlign: "left", borderBottom: "1px solid #ddd" }}>Address</th>
-                </tr>
-              </thead>
-              <tbody>
-                {voters.length > 0 ? (
-                  voters.map((voter, idx) => (
-                    <tr key={voter.voter_id}>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #ddd" }}>{idx + 1}</td>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #ddd" }}>{voter.voter_id}</td>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #ddd" }}>{voter.full_name || voter.name}</td>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #ddd" }}>{voter.address}</td>
-                    </tr>
-                  ))
-                ) : (
+          {message && <div style={{ marginTop: 12 }} className="message error">{message}</div>}
+
+          <div className="voters-table-container">
+            {loading ? (
+              <div className="no-voters">Loading voters list...</div>
+            ) : (
+              <table className="voters-table">
+                <thead>
                   <tr>
-                    <td colSpan="4" style={{ padding: "20px", textAlign: "center" }}>
-                      No voters found
-                    </td>
+                    <th>SI No</th>
+                    <th>Voter ID</th>
+                    <th>Voter Name</th>
+                    <th>Age</th>
+                    <th>Address</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredVoters.length > 0 ? (
+                    filteredVoters.map((voter, idx) => (
+                      <tr key={voter._id || voter.voter_id}>
+                        <td>{idx + 1}</td>
+                        <td>{voter.voter_id}</td>
+                        <td>{voter.full_name || voter.name || "—"}</td>
+                        <td>{calculateAge(voter.date_of_birth)}</td>
+                        <td>{formatAddress(voter.address)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="no-voters">No voters found</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
-      </div>
+        </section>
+      </main>
+
+      <footer className="vd-footer">
+        <div className="vd-footer-inner">© 2025 St. Joseph's College of Engineering & Technology. All Rights Reserved.</div>
+      </footer>
     </div>
   );
 }
